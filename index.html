@@ -1,0 +1,277 @@
+<script>
+/* ==============================
+   CONFIG – FY 2024-25 SETTINGS
+================================ */
+
+const FY_START = new Date("2024-04-01");
+const FY_END   = new Date("2025-03-31");
+const TDS_THRESHOLD = 50000; // ₹50,000 default
+const TAX_RATE = 0.30;
+const CESS_RATE = 0.04;
+
+/* ==============================
+   INIT
+================================ */
+
+let trades = [];
+
+document.getElementById('tradeDate').value =
+  new Date().toISOString().split('T')[0];
+
+loadFromStorage();
+renderTrades();
+calculate();
+
+/* ==============================
+   UTILITIES
+================================ */
+
+function fmt(n) {
+  if (!n) return "₹0";
+  return "₹" + Math.round(n).toLocaleString("en-IN");
+}
+
+function saveToStorage() {
+  localStorage.setItem("cryptoTradesFY2425", JSON.stringify(trades));
+}
+
+function loadFromStorage() {
+  const saved = localStorage.getItem("cryptoTradesFY2425");
+  if (saved) trades = JSON.parse(saved);
+}
+
+/* ==============================
+   ADD / DELETE
+================================ */
+
+function addTrade() {
+  const coin = document.getElementById("coin").value;
+  const type = document.getElementById("tradeType").value;
+  const qty = parseFloat(document.getElementById("qty").value);
+  const price = parseFloat(document.getElementById("price").value);
+  const exchange = document.getElementById("exchange").value;
+  const date = document.getElementById("tradeDate").value;
+
+  if (!qty || !price || qty <= 0 || price <= 0) {
+    alert("Enter valid quantity & price.");
+    return;
+  }
+
+  if (qty > 1000000 || price > 1000000000) {
+    alert("Unrealistic value entered.");
+    return;
+  }
+
+  trades.push({
+    coin,
+    type,
+    qty,
+    price,
+    exchange,
+    date,
+    value: qty * price
+  });
+
+  document.getElementById("qty").value = "";
+  document.getElementById("price").value = "";
+
+  saveToStorage();
+  renderTrades();
+  calculate();
+}
+
+function deleteTrade(i) {
+  trades.splice(i, 1);
+  saveToStorage();
+  renderTrades();
+  calculate();
+}
+
+/* ==============================
+   RENDER TABLE
+================================ */
+
+function renderTrades() {
+  const c = document.getElementById("tradesContainer");
+
+  if (trades.length === 0) {
+    c.innerHTML = '<div class="empty-state">No trades added yet.</div>';
+    return;
+  }
+
+  let html = `<table class="trades-table">
+    <thead>
+      <tr>
+        <th>Asset</th>
+        <th>Type</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Value</th>
+        <th>Date</th>
+        <th></th>
+      </tr>
+    </thead><tbody>`;
+
+  trades.forEach((t, i) => {
+    html += `<tr>
+      <td>${t.coin}</td>
+      <td>${t.type.toUpperCase()}</td>
+      <td>${t.qty}</td>
+      <td>${fmt(t.price)}</td>
+      <td>${fmt(t.value)}</td>
+      <td>${t.date}</td>
+      <td><button onclick="deleteTrade(${i})">✕</button></td>
+    </tr>`;
+  });
+
+  html += "</tbody></table>";
+  c.innerHTML = html;
+}
+
+/* ==============================
+   TRUE FIFO CALCULATION
+================================ */
+
+function calculateFIFO(buys, sells) {
+  let buyLots = buys.map(b => ({ ...b }));
+  let totalGain = 0;
+  let totalCost = 0;
+  let totalSale = 0;
+
+  sells.forEach(sell => {
+    let sellQty = sell.qty;
+
+    while (sellQty > 0 && buyLots.length > 0) {
+      let buy = buyLots[0];
+      let matched = Math.min(sellQty, buy.qty);
+
+      totalGain += matched * (sell.price - buy.price);
+      totalCost += matched * buy.price;
+      totalSale += matched * sell.price;
+
+      buy.qty -= matched;
+      sellQty -= matched;
+
+      if (buy.qty === 0) buyLots.shift();
+    }
+  });
+
+  return { totalGain, totalCost, totalSale };
+}
+
+/* ==============================
+   SURCHARGE SLAB
+================================ */
+
+function getSurchargeRate(totalIncome) {
+  if (totalIncome > 50000000) return 0.37;
+  if (totalIncome > 20000000) return 0.25;
+  if (totalIncome > 10000000) return 0.15;
+  if (totalIncome > 5000000) return 0.10;
+  return 0;
+}
+
+/* ==============================
+   MAIN CALCULATION
+================================ */
+
+function calculate() {
+
+  // Filter FY trades only
+  const fyTrades = trades.filter(t => {
+    const d = new Date(t.date);
+    return d >= FY_START && d <= FY_END;
+  });
+
+  const grouped = {};
+
+  fyTrades.forEach(t => {
+    if (!grouped[t.coin]) grouped[t.coin] = { buys: [], sells: [] };
+    grouped[t.coin][t.type === "buy" ? "buys" : "sells"].push(t);
+  });
+
+  let totalGain = 0;
+  let totalCost = 0;
+  let totalSale = 0;
+
+  Object.values(grouped).forEach(g => {
+    const result = calculateFIFO(g.buys, g.sells);
+    totalGain += result.totalGain;
+    totalCost += result.totalCost;
+    totalSale += result.totalSale;
+  });
+
+  // TDS Logic
+  let totalSellValue = fyTrades
+    .filter(t => t.type === "sell")
+    .reduce((s, t) => s + t.value, 0);
+
+  let totalTDS = totalSellValue > TDS_THRESHOLD
+    ? totalSellValue * 0.01
+    : 0;
+
+  // Tax
+  let tax = totalGain > 0 ? totalGain * TAX_RATE : 0;
+
+  // Optional surcharge (set 0 if not using UI input yet)
+  let surchargeRate = getSurchargeRate(0);
+  let surcharge = tax * surchargeRate;
+
+  let cess = (tax + surcharge) * CESS_RATE;
+
+  let grossTax = tax + surcharge + cess;
+  let netTax = Math.max(0, grossTax - totalTDS);
+
+  // Update UI
+  document.getElementById("sumGain").textContent = fmt(totalGain);
+  document.getElementById("sumTax").textContent = fmt(tax);
+  document.getElementById("sumTDS").textContent = fmt(totalTDS);
+  document.getElementById("sumNet").textContent = fmt(netTax);
+
+  renderITRSummary(totalSale, totalCost, totalGain, totalTDS);
+}
+
+/* ==============================
+   ITR READY SUMMARY
+================================ */
+
+function renderITRSummary(sale, cost, gain, tds) {
+  const br = document.getElementById("breakdownRows");
+
+  br.innerHTML = `
+    <div class="breakdown-row">
+      <span>Total Sale Consideration</span>
+      <span>${fmt(sale)}</span>
+    </div>
+    <div class="breakdown-row">
+      <span>Cost of Acquisition</span>
+      <span>${fmt(cost)}</span>
+    </div>
+    <div class="breakdown-row">
+      <span>Income under VDA (115BBH)</span>
+      <span>${fmt(gain)}</span>
+    </div>
+    <div class="breakdown-row">
+      <span>TDS Credit u/s 194S</span>
+      <span>${fmt(tds)}</span>
+    </div>
+  `;
+}
+
+/* ==============================
+   EXPORT CSV
+================================ */
+
+function exportCSV() {
+  let csv = "Coin,Type,Qty,Price,Value,Exchange,Date\n";
+  trades.forEach(t => {
+    csv += `${t.coin},${t.type},${t.qty},${t.price},${t.value},${t.exchange},${t.date}\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "crypto-tax-fy24-25.csv";
+  link.click();
+}
+</script>

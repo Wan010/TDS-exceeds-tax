@@ -1,277 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CryptoTax India — FY 2024-25</title>
+
+<style>
+body{
+  background:#0a0a0f;
+  color:#e8e8f0;
+  font-family:Arial, sans-serif;
+  margin:0;
+  padding:20px;
+}
+.container{max-width:1000px;margin:auto;}
+h1{margin-bottom:5px}
+.card{
+  background:#16161f;
+  padding:20px;
+  margin-bottom:20px;
+  border-radius:8px;
+  border:1px solid #252535;
+}
+input,select{
+  padding:8px;
+  margin:5px 0;
+  width:100%;
+  background:#111118;
+  color:white;
+  border:1px solid #252535;
+  border-radius:5px;
+}
+button{
+  padding:10px 20px;
+  margin-top:10px;
+  background:#f0a500;
+  border:none;
+  border-radius:5px;
+  cursor:pointer;
+  font-weight:bold;
+}
+button:hover{opacity:0.9}
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:10px;
+}
+th,td{
+  padding:8px;
+  border-bottom:1px solid #252535;
+  text-align:left;
+}
+.summary-box{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:15px;
+}
+.stat{
+  background:#111118;
+  padding:15px;
+  border-radius:6px;
+}
+.small{font-size:12px;color:#888}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>CryptoTax India</h1>
+<div class="small">FY 2024–25 · Section 115BBH</div>
+
+<div class="card">
+<h3>Add Trade</h3>
+<select id="coin">
+<option>BTC</option>
+<option>ETH</option>
+<option>SOL</option>
+<option>MATIC</option>
+<option>Other</option>
+</select>
+
+<select id="type">
+<option value="buy">Buy</option>
+<option value="sell">Sell</option>
+</select>
+
+<input type="number" id="qty" placeholder="Quantity">
+<input type="number" id="price" placeholder="Price (₹)">
+<input type="date" id="date">
+
+<button onclick="addTrade()">Add Trade</button>
+<button onclick="exportCSV()">Export CSV</button>
+</div>
+
+<div class="card">
+<h3>Trades</h3>
+<div id="tradeTable">No trades yet.</div>
+</div>
+
+<div class="card">
+<h3>Tax Summary</h3>
+<div class="summary-box">
+<div class="stat">
+<div class="small">Net Gain</div>
+<div id="gain">₹0</div>
+</div>
+<div class="stat">
+<div class="small">Tax @30%</div>
+<div id="tax">₹0</div>
+</div>
+<div class="stat">
+<div class="small">TDS @1%</div>
+<div id="tds">₹0</div>
+</div>
+<div class="stat">
+<div class="small">Net Payable</div>
+<div id="net">₹0</div>
+</div>
+</div>
+</div>
+
+</div>
+
 <script>
-/* ==============================
-   CONFIG – FY 2024-25 SETTINGS
-================================ */
+document.addEventListener("DOMContentLoaded", function(){
 
 const FY_START = new Date("2024-04-01");
-const FY_END   = new Date("2025-03-31");
-const TDS_THRESHOLD = 50000; // ₹50,000 default
-const TAX_RATE = 0.30;
-const CESS_RATE = 0.04;
+const FY_END = new Date("2025-03-31");
+const TDS_THRESHOLD = 50000;
 
-/* ==============================
-   INIT
-================================ */
+let trades = JSON.parse(localStorage.getItem("cryptoTrades")) || [];
 
-let trades = [];
+document.getElementById("date").value =
+new Date().toISOString().split("T")[0];
 
-document.getElementById('tradeDate').value =
-  new Date().toISOString().split('T')[0];
-
-loadFromStorage();
-renderTrades();
+render();
 calculate();
 
-/* ==============================
-   UTILITIES
-================================ */
-
-function fmt(n) {
-  if (!n) return "₹0";
-  return "₹" + Math.round(n).toLocaleString("en-IN");
+function fmt(n){
+return "₹" + Math.round(n).toLocaleString("en-IN");
 }
 
-function saveToStorage() {
-  localStorage.setItem("cryptoTradesFY2425", JSON.stringify(trades));
+window.addTrade = function(){
+
+let coin=document.getElementById("coin").value;
+let type=document.getElementById("type").value;
+let qty=parseFloat(document.getElementById("qty").value);
+let price=parseFloat(document.getElementById("price").value);
+let date=document.getElementById("date").value;
+
+if(!qty || !price || qty<=0 || price<=0){
+alert("Enter valid values");
+return;
 }
 
-function loadFromStorage() {
-  const saved = localStorage.getItem("cryptoTradesFY2425");
-  if (saved) trades = JSON.parse(saved);
+trades.push({
+coin,type,qty,price,date,
+value:qty*price
+});
+
+localStorage.setItem("cryptoTrades",JSON.stringify(trades));
+
+document.getElementById("qty").value="";
+document.getElementById("price").value="";
+
+render();
+calculate();
 }
 
-/* ==============================
-   ADD / DELETE
-================================ */
-
-function addTrade() {
-  const coin = document.getElementById("coin").value;
-  const type = document.getElementById("tradeType").value;
-  const qty = parseFloat(document.getElementById("qty").value);
-  const price = parseFloat(document.getElementById("price").value);
-  const exchange = document.getElementById("exchange").value;
-  const date = document.getElementById("tradeDate").value;
-
-  if (!qty || !price || qty <= 0 || price <= 0) {
-    alert("Enter valid quantity & price.");
-    return;
-  }
-
-  if (qty > 1000000 || price > 1000000000) {
-    alert("Unrealistic value entered.");
-    return;
-  }
-
-  trades.push({
-    coin,
-    type,
-    qty,
-    price,
-    exchange,
-    date,
-    value: qty * price
-  });
-
-  document.getElementById("qty").value = "";
-  document.getElementById("price").value = "";
-
-  saveToStorage();
-  renderTrades();
-  calculate();
+function render(){
+let el=document.getElementById("tradeTable");
+if(trades.length===0){
+el.innerHTML="No trades yet.";
+return;
 }
 
-function deleteTrade(i) {
-  trades.splice(i, 1);
-  saveToStorage();
-  renderTrades();
-  calculate();
+let html="<table><tr><th>Coin</th><th>Type</th><th>Qty</th><th>Price</th><th>Value</th><th>Date</th></tr>";
+
+trades.forEach(t=>{
+html+=`<tr>
+<td>${t.coin}</td>
+<td>${t.type}</td>
+<td>${t.qty}</td>
+<td>${fmt(t.price)}</td>
+<td>${fmt(t.value)}</td>
+<td>${t.date}</td>
+</tr>`;
+});
+
+html+="</table>";
+el.innerHTML=html;
 }
 
-/* ==============================
-   RENDER TABLE
-================================ */
+function calculateFIFO(buys,sells){
 
-function renderTrades() {
-  const c = document.getElementById("tradesContainer");
+let buyLots=buys.map(b=>({...b}));
+let totalGain=0;
 
-  if (trades.length === 0) {
-    c.innerHTML = '<div class="empty-state">No trades added yet.</div>';
-    return;
-  }
+sells.forEach(sell=>{
+let sellQty=sell.qty;
 
-  let html = `<table class="trades-table">
-    <thead>
-      <tr>
-        <th>Asset</th>
-        <th>Type</th>
-        <th>Qty</th>
-        <th>Price</th>
-        <th>Value</th>
-        <th>Date</th>
-        <th></th>
-      </tr>
-    </thead><tbody>`;
+while(sellQty>0 && buyLots.length>0){
 
-  trades.forEach((t, i) => {
-    html += `<tr>
-      <td>${t.coin}</td>
-      <td>${t.type.toUpperCase()}</td>
-      <td>${t.qty}</td>
-      <td>${fmt(t.price)}</td>
-      <td>${fmt(t.value)}</td>
-      <td>${t.date}</td>
-      <td><button onclick="deleteTrade(${i})">✕</button></td>
-    </tr>`;
-  });
+let buy=buyLots[0];
+let match=Math.min(sellQty,buy.qty);
 
-  html += "</tbody></table>";
-  c.innerHTML = html;
+totalGain+=match*(sell.price-buy.price);
+
+buy.qty-=match;
+sellQty-=match;
+
+if(buy.qty===0) buyLots.shift();
+}
+});
+
+return totalGain;
 }
 
-/* ==============================
-   TRUE FIFO CALCULATION
-================================ */
+function calculate(){
 
-function calculateFIFO(buys, sells) {
-  let buyLots = buys.map(b => ({ ...b }));
-  let totalGain = 0;
-  let totalCost = 0;
-  let totalSale = 0;
+let fyTrades=trades.filter(t=>{
+let d=new Date(t.date);
+return d>=FY_START && d<=FY_END;
+});
 
-  sells.forEach(sell => {
-    let sellQty = sell.qty;
+let grouped={};
 
-    while (sellQty > 0 && buyLots.length > 0) {
-      let buy = buyLots[0];
-      let matched = Math.min(sellQty, buy.qty);
+fyTrades.forEach(t=>{
+if(!grouped[t.coin]) grouped[t.coin]={buys:[],sells:[]};
+grouped[t.coin][t.type==="buy"?"buys":"sells"].push(t);
+});
 
-      totalGain += matched * (sell.price - buy.price);
-      totalCost += matched * buy.price;
-      totalSale += matched * sell.price;
+let totalGain=0;
 
-      buy.qty -= matched;
-      sellQty -= matched;
+Object.values(grouped).forEach(g=>{
+totalGain+=calculateFIFO(g.buys,g.sells);
+});
 
-      if (buy.qty === 0) buyLots.shift();
-    }
-  });
+let totalSellValue=fyTrades
+.filter(t=>t.type==="sell")
+.reduce((s,t)=>s+t.value,0);
 
-  return { totalGain, totalCost, totalSale };
+let totalTDS= totalSellValue>TDS_THRESHOLD
+? totalSellValue*0.01
+:0;
+
+let tax= totalGain>0 ? totalGain*0.30 :0;
+let cess= tax*0.04;
+let net=Math.max(0,(tax+cess)-totalTDS);
+
+document.getElementById("gain").textContent=fmt(totalGain);
+document.getElementById("tax").textContent=fmt(tax);
+document.getElementById("tds").textContent=fmt(totalTDS);
+document.getElementById("net").textContent=fmt(net);
 }
 
-/* ==============================
-   SURCHARGE SLAB
-================================ */
-
-function getSurchargeRate(totalIncome) {
-  if (totalIncome > 50000000) return 0.37;
-  if (totalIncome > 20000000) return 0.25;
-  if (totalIncome > 10000000) return 0.15;
-  if (totalIncome > 5000000) return 0.10;
-  return 0;
+window.exportCSV=function(){
+let csv="Coin,Type,Qty,Price,Value,Date\n";
+trades.forEach(t=>{
+csv+=`${t.coin},${t.type},${t.qty},${t.price},${t.value},${t.date}\n`;
+});
+let blob=new Blob([csv],{type:"text/csv"});
+let link=document.createElement("a");
+link.href=URL.createObjectURL(blob);
+link.download="crypto-tax-fy24-25.csv";
+link.click();
 }
 
-/* ==============================
-   MAIN CALCULATION
-================================ */
-
-function calculate() {
-
-  // Filter FY trades only
-  const fyTrades = trades.filter(t => {
-    const d = new Date(t.date);
-    return d >= FY_START && d <= FY_END;
-  });
-
-  const grouped = {};
-
-  fyTrades.forEach(t => {
-    if (!grouped[t.coin]) grouped[t.coin] = { buys: [], sells: [] };
-    grouped[t.coin][t.type === "buy" ? "buys" : "sells"].push(t);
-  });
-
-  let totalGain = 0;
-  let totalCost = 0;
-  let totalSale = 0;
-
-  Object.values(grouped).forEach(g => {
-    const result = calculateFIFO(g.buys, g.sells);
-    totalGain += result.totalGain;
-    totalCost += result.totalCost;
-    totalSale += result.totalSale;
-  });
-
-  // TDS Logic
-  let totalSellValue = fyTrades
-    .filter(t => t.type === "sell")
-    .reduce((s, t) => s + t.value, 0);
-
-  let totalTDS = totalSellValue > TDS_THRESHOLD
-    ? totalSellValue * 0.01
-    : 0;
-
-  // Tax
-  let tax = totalGain > 0 ? totalGain * TAX_RATE : 0;
-
-  // Optional surcharge (set 0 if not using UI input yet)
-  let surchargeRate = getSurchargeRate(0);
-  let surcharge = tax * surchargeRate;
-
-  let cess = (tax + surcharge) * CESS_RATE;
-
-  let grossTax = tax + surcharge + cess;
-  let netTax = Math.max(0, grossTax - totalTDS);
-
-  // Update UI
-  document.getElementById("sumGain").textContent = fmt(totalGain);
-  document.getElementById("sumTax").textContent = fmt(tax);
-  document.getElementById("sumTDS").textContent = fmt(totalTDS);
-  document.getElementById("sumNet").textContent = fmt(netTax);
-
-  renderITRSummary(totalSale, totalCost, totalGain, totalTDS);
-}
-
-/* ==============================
-   ITR READY SUMMARY
-================================ */
-
-function renderITRSummary(sale, cost, gain, tds) {
-  const br = document.getElementById("breakdownRows");
-
-  br.innerHTML = `
-    <div class="breakdown-row">
-      <span>Total Sale Consideration</span>
-      <span>${fmt(sale)}</span>
-    </div>
-    <div class="breakdown-row">
-      <span>Cost of Acquisition</span>
-      <span>${fmt(cost)}</span>
-    </div>
-    <div class="breakdown-row">
-      <span>Income under VDA (115BBH)</span>
-      <span>${fmt(gain)}</span>
-    </div>
-    <div class="breakdown-row">
-      <span>TDS Credit u/s 194S</span>
-      <span>${fmt(tds)}</span>
-    </div>
-  `;
-}
-
-/* ==============================
-   EXPORT CSV
-================================ */
-
-function exportCSV() {
-  let csv = "Coin,Type,Qty,Price,Value,Exchange,Date\n";
-  trades.forEach(t => {
-    csv += `${t.coin},${t.type},${t.qty},${t.price},${t.value},${t.exchange},${t.date}\n`;
-  });
-
-  const blob = new Blob([csv], { type: "text/csv" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "crypto-tax-fy24-25.csv";
-  link.click();
-}
+});
 </script>
+
+</body>
+</html>
